@@ -1,0 +1,47 @@
+# Infra local: Postgres + pgvector (data plane) y, opcionalmente, el contenedor de la app.
+# Las credenciales vienen de .env (no versionado). Ver .env.example.
+name: gbd
+services:
+  db:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?define POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-gbd}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55440}:5432"
+    volumes:
+      - gbd-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    profiles: ["app"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-gbd}
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT:?define FOUNDRY_PROJECT_ENDPOINT en .env}
+      FOUNDRY_MODEL: ${FOUNDRY_MODEL:-gpt-5-mini}
+      FOUNDRY_EMBEDDING_MODEL: ${FOUNDRY_EMBEDDING_MODEL:-text-embedding-3-small}
+      GBD_FECHA_CORTE: ${GBD_FECHA_CORTE:-}
+      GBD_AAD_TOKEN_DIR: /run/gbd/tokens
+    volumes:
+      # Token de corta vida generado por `make tokens` (carpeta out/, ignorada por git).
+      - ../out/tokens:/run/gbd/tokens:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  gbd-pgdata:

@@ -1,0 +1,76 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests evals dataplane
+      - name: Tests unitarios (sin Postgres ni Foundry)
+        env:
+          POSTGRES_PASSWORD: ci-no-usado
+          FOUNDRY_PROJECT_ENDPOINT: https://ci.invalid/api/projects/ci
+        run: pytest -q -m "not integration"
+
+  integration-pgvector:
+    # Prueba el data plane real: esquema SQL idempotente, pgvector (HNSW) y reglas sobre Postgres.
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:0.8.1-pg17
+        env:
+          POSTGRES_USER: gbd
+          POSTGRES_PASSWORD: ci-efimera
+          POSTGRES_DB: gbd
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gbd" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      POSTGRES_PASSWORD: ci-efimera
+      POSTGRES_PORT: "5432"
+      FOUNDRY_PROJECT_ENDPOINT: https://ci.invalid/api/projects/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: gbd migrate && gbd migrate   # idempotente
+      - run: pytest -q tests/test_dataplane_pg.py
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          tags: gbd:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

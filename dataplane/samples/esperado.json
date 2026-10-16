@@ -1,0 +1,47 @@
+{
+  "fecha_corte": "2026-10-16",
+  "documentos": {
+    "CF-2026-0001.pdf": "carta_fianza",
+    "CF-2026-0002.pdf": "carta_fianza",
+    "CF-2026-0003.pdf": "carta_fianza",
+    "CF-2026-0004.pdf": "carta_fianza",
+    "CF-2026-0005.pdf": "carta_fianza",
+    "CF-2026-0006.pdf": "carta_fianza",
+    "CF-2026-0007.pdf": "carta_fianza",
+    "CF-2026-0008.pdf": "carta_fianza",
+    "CF-2026-0009.pdf": "carta_fianza",
+    "CF-2026-0010.pdf": "carta_fianza",
+    "CF-2026-0003_reenvio.pdf": "carta_fianza",
+    "oficio_liberacion_0099.pdf": "liberacion_garantia",
+    "factura_proveedor_F001-4521.pdf": "otro"
+  },
+  "conciliacion": {
+    "CF-2026-0001": [],
+    "CF-2026-0002": [],
+    "CF-2026-0003": [
+      "DUPLICADA"
+    ],
+    "CF-2026-0004": [
+      "MONTO_DISTINTO"
+    ],
+    "CF-2026-0005": [
+      "NO_EN_TESORERIA"
+    ],
+    "CF-2026-0006": [
+      "VENCIDA"
+    ],
+    "CF-2026-0007": [
+      "POR_VENCER"
+    ],
+    "CF-2026-0008": [
+      "MONEDA_DISTINTA"
+    ],
+    "CF-2026-0009": [
+      "VENCIMIENTO_DISTINTO"
+    ],
+    "CF-2026-0010": [],
+    "CF-2026-0011": [
+      "SIN_CARTA"
+    ]
+  }
+}

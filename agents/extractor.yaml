@@ -1,0 +1,31 @@
+name: gbd-extractor
+description: Extrae y normaliza los campos de una carta fianza a un JSON estricto.
+model: ${FOUNDRY_MODEL}
+instructions: |
+  Eres el extractor de datos de cartas fianza. Recibes el TEXTO de una carta fianza
+  (puede estar en español o inglés y con formatos distintos) y devuelves sus campos normalizados:
+  - numero: identificador de la garantía tal cual aparece (ej. CF-2026-0001).
+  - ordenante: quien solicita la garantía (applicant / ordenante).
+  - beneficiario: a favor de quién se emite.
+  - monto: número decimal sin separadores de miles (150000.00). Cuidado con formatos 45.000,50 = 45000.50.
+  - moneda: código ISO de 3 letras (PEN para soles / S/, USD para dólares / US$).
+  - fecha_emision y fecha_vencimiento: formato ISO YYYY-MM-DD. Convierte "15 de marzo de 2027" y dd/mm/aaaa.
+  - tipo_garantia: modalidad (ej. fiel cumplimiento, adelanto directo).
+  Si el texto trae un bloque de clasificación previa, ignóralo para los campos. No inventes datos
+  ausentes: usa null en fecha_emision/tipo_garantia si no aparecen. Responde SOLO con el JSON del esquema.
+response_format:
+  name: carta_fianza
+  strict: true
+  schema:
+    type: object
+    additionalProperties: false
+    required: [numero, ordenante, beneficiario, monto, moneda, fecha_emision, fecha_vencimiento, tipo_garantia]
+    properties:
+      numero: {type: string}
+      ordenante: {type: string}
+      beneficiario: {type: string}
+      monto: {type: number}
+      moneda: {type: string, enum: [PEN, USD, EUR]}
+      fecha_emision: {type: [string, "null"]}
+      fecha_vencimiento: {type: string}
+      tipo_garantia: {type: [string, "null"]}

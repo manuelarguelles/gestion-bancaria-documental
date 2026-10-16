@@ -1,0 +1,40 @@
+# Workflow declarativo de Foundry (CSDL): clasificar -> (si es carta fianza) extraer.
+# Visible en Foundry (Build > Workflows / Agents) con su visualizador y versiones.
+kind: workflow
+trigger:
+  kind: OnConversationStart
+  id: trigger_documental
+  actions:
+    - kind: InvokeAzureAgent
+      id: clasificar
+      displayName: Clasificar documento
+      conversationId: =System.ConversationId
+      agent:
+        name: gbd-clasificador
+      input:
+        messages: =System.LastMessage
+      output:
+        autoSend: true
+        responseObject: Local.Clasificacion
+    - kind: ConditionGroup
+      id: es_carta
+      displayName: ¿Es carta fianza?
+      conditions:
+        - id: rama_carta
+          condition: =Local.Clasificacion.tipo = "carta_fianza"
+          actions:
+            - kind: InvokeAzureAgent
+              id: extraer
+              displayName: Extraer campos
+              conversationId: =System.ConversationId
+              agent:
+                name: gbd-extractor
+              input:
+                messages: =System.LastMessage
+              output:
+                autoSend: true
+      elseActions:
+        - kind: SendActivity
+          id: fuera_alcance
+          displayName: Fuera de alcance
+          activity: FUERA_DE_ALCANCE

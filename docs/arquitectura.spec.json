@@ -1,0 +1,289 @@
+{
+ "title": "Gestión Bancaria Documental — Arquitectura de componentes",
+ "zones": [
+  {
+   "id": "z_ent",
+   "label": "Entradas y personas",
+   "x": 20,
+   "y": 70,
+   "w": 190,
+   "h": 590,
+   "color": "#c0504d"
+  },
+  {
+   "id": "z_doc",
+   "label": "Contenedor Docker · workflow local (Agent Framework) + data plane",
+   "x": 230,
+   "y": 70,
+   "w": 500,
+   "h": 590,
+   "color": "#2e8b57",
+   "fill": "#f8fcfa"
+  },
+  {
+   "id": "z_fdy",
+   "label": "Microsoft Foundry · proyecto (Entra ID, sin API keys)",
+   "x": 760,
+   "y": 70,
+   "w": 300,
+   "h": 590,
+   "color": "#e5675a"
+  },
+  {
+   "id": "z_ci",
+   "label": "GitHub · CI/CD (Actions, OIDC, sin secretos en el repo)",
+   "x": 230,
+   "y": 690,
+   "w": 830,
+   "h": 120,
+   "color": "#6c6c6c",
+   "fill": "#fafafa"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "bandeja",
+   "label": "📄📊 Bandeja PDF + Excel Tesorería",
+   "x": 40,
+   "y": 112,
+   "w": 150,
+   "h": 62,
+   "kind": "edge"
+  },
+  {
+   "id": "ingest",
+   "label": "📥 Ingestar (ETL)",
+   "x": 260,
+   "y": 112,
+   "w": 155
+  },
+  {
+   "id": "cog",
+   "label": "🧩 Cognitivo",
+   "x": 260,
+   "y": 190,
+   "w": 155
+  },
+  {
+   "id": "cargar",
+   "label": "💾 Cargar",
+   "x": 260,
+   "y": 275,
+   "w": 155
+  },
+  {
+   "id": "conc",
+   "label": "⚖ Conciliar (reglas)",
+   "x": 260,
+   "y": 360,
+   "w": 155
+  },
+  {
+   "id": "exc",
+   "label": "🔎 Excepciones + RAG",
+   "x": 260,
+   "y": 445,
+   "w": 155
+  },
+  {
+   "id": "res",
+   "label": "📋 Resumen",
+   "x": 260,
+   "y": 530,
+   "w": 155
+  },
+  {
+   "id": "pg",
+   "label": "🗄 Postgres + pgvector",
+   "x": 520,
+   "y": 265,
+   "w": 170,
+   "h": 130,
+   "kind": "data",
+   "shape": "cyl"
+  },
+  {
+   "id": "api",
+   "label": "🔌 API consulta (gbd_lector)",
+   "x": 260,
+   "y": 600,
+   "w": 155,
+   "kind": "guard"
+  },
+  {
+   "id": "analista",
+   "label": "🧑‍💼 Analista de Garantías",
+   "x": 40,
+   "y": 445,
+   "w": 150,
+   "kind": "human"
+  },
+  {
+   "id": "agencias",
+   "label": "🏦 Agencias",
+   "x": 40,
+   "y": 600,
+   "w": 150,
+   "kind": "human"
+  },
+  {
+   "id": "wf",
+   "label": "🔀 Workflow: clasificar → extraer",
+   "x": 790,
+   "y": 190,
+   "w": 240,
+   "kind": "ext"
+  },
+  {
+   "id": "modelos",
+   "label": "🧠 gpt-5-mini · embeddings",
+   "x": 790,
+   "y": 300,
+   "w": 240,
+   "kind": "ext"
+  },
+  {
+   "id": "ana_ag",
+   "label": "🤖 Agente analista de excepciones",
+   "x": 790,
+   "y": 445,
+   "w": 240,
+   "kind": "ext"
+  },
+  {
+   "id": "trazas",
+   "label": "📈 Seguimientos (App Insights)",
+   "x": 790,
+   "y": 560,
+   "w": 240,
+   "kind": "ext"
+  },
+  {
+   "id": "ci",
+   "label": "✅ CI: ruff + tests",
+   "x": 260,
+   "y": 730,
+   "w": 155
+  },
+  {
+   "id": "ghcr",
+   "label": "📦 Imagen → GHCR",
+   "x": 470,
+   "y": 730,
+   "w": 155
+  },
+  {
+   "id": "deploy",
+   "label": "🚀 Deploy agentes (manual)",
+   "x": 790,
+   "y": 730,
+   "w": 240
+  }
+ ],
+ "edges": [
+  {
+   "from": "bandeja",
+   "to": "ingest",
+   "label": "PDF/XLSX"
+  },
+  {
+   "from": "ingest",
+   "to": "cog"
+  },
+  {
+   "from": "cog",
+   "to": "wf",
+   "label": "invoca workflow"
+  },
+  {
+   "from": "cog",
+   "to": "cargar"
+  },
+  {
+   "from": "cargar",
+   "to": "pg",
+   "label": "INSERT"
+  },
+  {
+   "from": "cargar",
+   "to": "conc"
+  },
+  {
+   "from": "conc",
+   "to": "pg",
+   "label": "cruza"
+  },
+  {
+   "from": "conc",
+   "to": "exc"
+  },
+  {
+   "from": "exc",
+   "to": "pg",
+   "dashed": true
+  },
+  {
+   "from": "exc",
+   "to": "ana_ag",
+   "label": "analiza con políticas"
+  },
+  {
+   "from": "exc",
+   "to": "res"
+  },
+  {
+   "from": "exc",
+   "to": "analista",
+   "label": "cola HITL"
+  },
+  {
+   "from": "agencias",
+   "to": "api",
+   "label": "estado"
+  },
+  {
+   "from": "api",
+   "to": "pg",
+   "label": "solo lectura",
+   "dashed": true
+  },
+  {
+   "from": "ci",
+   "to": "ghcr"
+  },
+  {
+   "from": "ghcr",
+   "to": "deploy",
+   "dashed": true
+  },
+  {
+   "from": "deploy",
+   "to": "z_fdy",
+   "dashed": true
+  }
+ ],
+ "badges": [
+  "bandeja",
+  "ingest",
+  "wf",
+  "cargar",
+  "conc",
+  "exc",
+  "ana_ag",
+  "analista",
+  "api"
+ ],
+ "legend_y": 830,
+ "legend": [
+  "1  Llega la bandeja: PDFs de cartas fianza y el Excel del Registro de Tesorería.",
+  "2  Ingestar carga el Excel a Postgres y extrae el texto de los PDF nuevos (idempotente por sha256).",
+  "3  Cognitivo invoca el workflow de Foundry: clasifica el documento y, si es carta fianza, extrae sus campos (JSON estricto).",
+  "4  Cargar guarda documentos y cartas en Postgres.",
+  "5  Conciliar aplica reglas puras contra Tesorería: monto, moneda, vencimiento, duplicados, vencidas y por vencer.",
+  "6  Cada excepción recupera sus políticas internas con búsqueda vectorial en pgvector.",
+  "7  El agente analista explica la excepción y propone la acción citando solo las políticas recuperadas.",
+  "8  El analista decide (aprobar, rechazar o escalar): el agente propone, nunca resuelve solo.",
+  "9  Las agencias consultan estado y vigencia por una API de solo lectura, sin ver el texto de los documentos.",
+  "Trazas de cada corrida: Foundry > Seguimientos. CI: ruff, tests, imagen a GHCR. El deploy de agentes es manual, con OIDC."
+ ]
+}

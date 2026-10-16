@@ -1,0 +1,33 @@
+name: deploy-agents
+# Publica agentes y workflow en Microsoft Foundry. Manual y con aprobación del environment.
+# Autenticación OIDC (federated credential de Entra ID): NO hay secretos en el repo.
+# Configura en Settings > Environments > foundry-sandbox las *variables* (no secretos):
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, FOUNDRY_PROJECT_ENDPOINT
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: foundry-sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e .
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Publicar agentes y workflow (nueva versión inmutable)
+        env:
+          FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          POSTGRES_PASSWORD: no-usado-en-deploy
+        run: gbd deploy-agentes
