@@ -4,9 +4,9 @@ Agente de tipo **workflow** que concilia cartas fianza contra el Registro de Gar
 
 Todo el caso es **sintético**: entidad ficticia («Banco Andino Demo»), documentos generados y ninguna credencial en el repo.
 
-![Arquitectura de componentes](docs/img/arquitectura.png)
+![Arquitectura de componentes](docs/img/arquitectura-social.png)
 
-El diagrama editable está en [`docs/arquitectura.drawio`](docs/arquitectura.drawio).
+Vista resumida, exportada del visor de draw.io. Los diagramas editables están en [`docs/arquitectura-social.drawio`](docs/arquitectura-social.drawio) (resumen) y [`docs/arquitectura.drawio`](docs/arquitectura.drawio) (detalle con los 9 pasos y CI/CD).
 
 ## Qué hace
 

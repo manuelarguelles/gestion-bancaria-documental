@@ -1,0 +1,174 @@
+{
+ "title": "Cartas fianza · agente workflow en Microsoft Foundry",
+ "zones": [
+  {
+   "id": "z_ent",
+   "label": "Entradas",
+   "x": 20,
+   "y": 60,
+   "w": 190,
+   "h": 420,
+   "color": "#c0504d",
+   "fs": 15
+  },
+  {
+   "id": "z_doc",
+   "label": "Contenedor Docker",
+   "x": 235,
+   "y": 60,
+   "w": 500,
+   "h": 420,
+   "color": "#2e8b57",
+   "fill": "#f8fcfa",
+   "fs": 15
+  },
+  {
+   "id": "z_fdy",
+   "label": "Microsoft Foundry",
+   "x": 765,
+   "y": 60,
+   "w": 300,
+   "h": 420,
+   "color": "#e5675a",
+   "fs": 15
+  }
+ ],
+ "nodes": [
+  {
+   "id": "bandeja",
+   "label": "📄 PDF + 📊 Excel de Tesorería",
+   "x": 38,
+   "y": 120,
+   "w": 155,
+   "h": 70,
+   "kind": "edge"
+  },
+  {
+   "id": "analista",
+   "label": "🧑‍💼 Analista decide",
+   "x": 38,
+   "y": 380,
+   "w": 155,
+   "h": 70,
+   "kind": "human"
+  },
+  {
+   "id": "ingest",
+   "label": "📥 Lectura de PDF: texto · OCR · visión",
+   "x": 262,
+   "y": 100,
+   "w": 170,
+   "h": 70
+  },
+  {
+   "id": "cog",
+   "label": "🧩 Cognitivo + anclaje",
+   "x": 262,
+   "y": 195,
+   "w": 170,
+   "h": 62
+  },
+  {
+   "id": "cargar",
+   "label": "💾 Cargar",
+   "x": 262,
+   "y": 282,
+   "w": 170,
+   "h": 55
+  },
+  {
+   "id": "conc",
+   "label": "⚖ Conciliar (reglas)",
+   "x": 262,
+   "y": 362,
+   "w": 170,
+   "h": 55
+  },
+  {
+   "id": "pg",
+   "label": "🗄 Postgres + pgvector",
+   "x": 520,
+   "y": 258,
+   "w": 190,
+   "h": 105,
+   "kind": "data",
+   "shape": "cyl"
+  },
+  {
+   "id": "wf",
+   "label": "🔀 Workflow: clasificar → extraer",
+   "x": 790,
+   "y": 191,
+   "w": 250,
+   "h": 70,
+   "kind": "ext"
+  },
+  {
+   "id": "modelos",
+   "label": "🧠 gpt-5-mini (visión) · embeddings",
+   "x": 790,
+   "y": 105,
+   "w": 250,
+   "h": 70,
+   "kind": "ext"
+  },
+  {
+   "id": "ana_ag",
+   "label": "🤖 Agente: explica la excepción",
+   "x": 790,
+   "y": 355,
+   "w": 250,
+   "h": 70,
+   "kind": "ext"
+  },
+  {
+   "id": "trazas",
+   "label": "📈 Traza de cada corrida",
+   "x": 790,
+   "y": 432,
+   "w": 250,
+   "h": 44,
+   "kind": "ext"
+  }
+ ],
+ "edges": [
+  {
+   "from": "bandeja",
+   "to": "ingest"
+  },
+  {
+   "from": "ingest",
+   "to": "cog"
+  },
+  {
+   "from": "cog",
+   "to": "wf",
+   "label": "invoca"
+  },
+  {
+   "from": "cog",
+   "to": "cargar"
+  },
+  {
+   "from": "cargar",
+   "to": "pg"
+  },
+  {
+   "from": "cargar",
+   "to": "conc"
+  },
+  {
+   "from": "conc",
+   "to": "ana_ag",
+   "label": "excepciones + RAG"
+  },
+  {
+   "from": "conc",
+   "to": "analista",
+   "label": "cola HITL"
+  }
+ ],
+ "badges": [],
+ "legend": [],
+ "legend_y": 2000
+}
