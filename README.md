@@ -10,9 +10,10 @@ El diagrama editable está en [`docs/arquitectura.drawio`](docs/arquitectura.dra
 
 ## Qué hace
 
-1. **Ingesta** una bandeja de PDF y el Excel de Tesorería (idempotente por `sha256`).
+1. **Ingesta** una bandeja de PDF y el Excel de Tesorería (idempotente por `sha256`) y **lee cada PDF por capas** para recuperar el máximo texto: nativo por bloques (PyMuPDF), OCR (Tesseract) y visión del modelo ([detalle](#lectura-de-pdf-recuperación-por-capas)).
 2. **Clasifica y extrae** con un *workflow de Microsoft Foundry*: carta fianza, oficio de liberación u otro. Si es carta fianza, devuelve sus campos en JSON estricto, aunque el PDF venga en español, en inglés o con formatos distintos.
-3. **Carga** documentos y cartas en Postgres.
+3. **Verifica el anclaje**: número, monto y fecha extraídos deben aparecer en el texto leído. Si no, relee con visión; si sigue sin anclar, el documento pasa a revisión humana (`LECTURA_DUDOSA`) en vez de entrar como dato falso.
+3. **Carga** documentos y cartas en Postgres, con el método de lectura y la confianza de cada uno.
 4. **Concilia** con reglas puras y auditables: monto, moneda, vencimiento, beneficiario, duplicadas, vencidas, por vencer, no registradas y registros sin carta.
 5. **Explica las excepciones**: recupera las políticas internas con búsqueda vectorial (pgvector) y un agente de Foundry propone la acción, citando solo las políticas recuperadas.
 6. **Deja la decisión al analista** (`gbd revisar`): aprobar, rechazar o escalar. El agente propone y nunca resuelve solo.
@@ -39,6 +40,25 @@ Los agentes y el workflow se publican con el SDK y quedan en **Build → Agents*
 
 > **Aviso importante.** Microsoft anunció que **retirará los workflows de Foundry el 1 de diciembre de 2026** y recomienda Microsoft Agent Framework. Por eso este proyecto separa los dos niveles: la orquestación local ya usa Agent Framework (`src/gbd/workflow/graph.py`), y el workflow declarativo de Foundry (`agents/workflow-documental.yaml`) es un YAML portable. Después de esa fecha, la ruta de migración es desplegar la orquestación como *hosted agent* con esta misma imagen. Con ese cambio la base debe ser alcanzable desde la nube, por ejemplo Azure Database for PostgreSQL con pgvector.
 
+## Lectura de PDF: recuperación por capas
+
+Un PDF puede traer texto, ser un escaneo o mezclar ambos (texto con un sello incrustado). `src/gbd/dataplane/extraccion.py` decide por página y deja registrado qué hizo:
+
+| Capa | Cuándo entra | Qué hace |
+|---|---|---|
+| **1. Nativo** (PyMuPDF) | Siempre que haya capa de texto | Bloques en orden de lectura (y, x). Gratis y exacto. |
+| **2. OCR** (Tesseract `spa+eng`) | Página sin texto útil, o imagen > 40 % del área | Corrige giro (OSD) e inclinación, prueba 4 preprocesados y se queda con el que lee **más palabras fiables**. |
+| **2b. OCR por región** | Texto nativo + imágenes incrustadas (sellos, firmas) | Lee solo esas imágenes y suma las líneas que el texto nativo no tenía. |
+| **3. Visión** (gpt-5-mini en Foundry) | Resolución efectiva < 150 dpi, OCR < 70 %, o dato sin anclar | Transcribe la imagen. Es el respaldo, no el camino principal. |
+| **Anclaje** | Después de extraer | Comprueba sin modelo que número, monto y fecha existan en el texto (acepta `1,234.50`, `1.234,50`, `31/12/2026`, «31 de diciembre de 2026»). |
+
+Dos lecciones medidas con las muestras, que motivaron el diseño:
+
+- **La confianza media del OCR engaña.** En el escaneo degradado, la variante con 94 % de confianza leyó 1 de 7 datos clave; las de 91–93 % leyeron 4. Por eso se elige por **palabras fiables leídas**, no por confianza media.
+- **Un OCR puede equivocarse con seguridad.** Leyó «SAL» en vez de «SRL» con 92 % de confianza: ninguna regla basada en confianza lo detecta. Lo que sí es medible es la **resolución de la imagen** (110 dpi en el escaneo degradado frente a 200 en el limpio), y bajo 150 dpi se usa visión.
+
+![Escaneo degradado de ejemplo (sintético)](docs/img/escaneo-degradado.png)
+
 ## Árbol del proyecto
 
 ```
@@ -47,7 +67,8 @@ Los agentes y el workflow se publican con el SDK y quedan en **Build → Agents*
 ├── src/gbd/
 │   ├── workflow/graph.py    # Orquestación (Microsoft Agent Framework): 6 executors
 │   ├── agents/deploy.py     # Publica agentes y workflow en Foundry (versiones inmutables)
-│   ├── dataplane/           # Reglas de conciliación (puras) y ETL
+│   ├── dataplane/           # extraccion.py (PyMuPDF · OCR · visión), anclaje.py, reglas.py (puras), etl.py
+│   ├── telemetry.py         # Spans OpenTelemetry → Application Insights (GBD_OTEL=1)
 │   ├── rag/politicas.py     # Indexado y recuperación con pgvector
 │   ├── api/app.py           # Canal de consulta (solo lectura)
 │   ├── foundry.py           # Cliente Foundry (Entra ID; sin API keys)
@@ -88,22 +109,38 @@ make docker-run                 # genera tokens efímeros en out/ (ignorado) y c
 
 ## Resultados de la prueba end to end
 
-Corrida sobre 13 PDF y 1 Excel con 11 casos plantados (3 conciliadas, 1 alerta, 8 excepciones). Se ejecutó desde cero tanto en el host como dentro del contenedor, con Postgres recién creado:
+Corrida sobre 16 PDF y 1 Excel con 15 garantías (5 conciliadas, 1 alerta, 9 excepciones). Entre los PDF hay 11 con capa de texto, 1 escaneo limpio, 1 escaneo degradado (110 dpi, inclinado, con ruido), 1 con sello incrustado, una factura y un oficio fuera de alcance. Se ejecutó desde cero, con Postgres recién creado, en el host y **dentro del contenedor**:
 
 ```
-clasificación : 13/13
-extracción    : 60/60 campos
-conciliación  : 12/12 garantías con los códigos exactos
-política citada: 8/8 excepciones
+clasificación : 16/16
+extracción    : 78/78 campos
+   · nativo             60/60 campos  (lectura: nativo)
+   · escaneo_limpio      6/6 campos   (lectura: ocr 96 %)
+   · escaneo_degradado   6/6 campos   (lectura: visión · 110 dpi)
+   · mixto_sello         6/6 campos   (lectura: nativo+ocr)
+conciliación  : 15/15 garantías con los códigos exactos
+política citada: 9/9 excepciones
 ```
+
+Para saber **cuánto aporta cada capa**, la primera corrida con solo OCR (sin la regla de resolución) dio 77/78: el OCR leyó «SAL» por «SRL» con 92 % de confianza, y la visión lo corrigió. Los campos críticos para conciliar (número, monto, moneda, fecha) salieron bien también con solo OCR.
+
+### La traza
+
+Con `GBD_OTEL=1`, cada corrida imprime su `operation_id` y deja un solo árbol en Foundry (**Agents → workflow → Seguimientos**): los nodos locales (`gbd.cognitivo`, `gbd.leer_documento`) quedan anidados con la ejecución del workflow y las llamadas al modelo.
+
+![Traza de una corrida en Foundry](docs/img/foundry-traza.png)
+
+Una corrida completa de 16 documentos tomó ~40 s y ~0,03 US$ estimados por Foundry (precio de lista del modelo; no incluye cómputo local).
 
 Idempotencia comprobada: una segunda corrida sobre la misma bandeja reporta 0 documentos nuevos y no reabre excepciones que ya están en la cola.
 
 **Límites que conviene conocer**
 
-- Los PDF sintéticos tienen capa de texto. Para escaneos haría falta OCR (por ejemplo Azure Document Intelligence), que no está implementado.
-- Es un caso de 13 documentos: valida el diseño, no el rendimiento.
-- El modelo introduce variación: la prioridad que asigna a una excepción de bajo riesgo puede cambiar entre corridas. Las clasificaciones, la extracción y la conciliación no variaron en las pruebas.
+- Los PDF son sintéticos y generados por mí: validan el diseño, no el rendimiento sobre documentos reales de un banco. No hay manuscritos, tablas complejas ni sellos que tapen texto.
+- 16 documentos no miden latencia ni costo a escala. La visión se usa solo cuando hace falta, pero un lote de escaneos malos costaría bastante más.
+- El anclaje confirma que un dato **aparece** en el texto leído, no que sea el correcto: si el OCR lee «87,500.25» donde dice «37,500.25», el dato se ancla igual. Para eso existe la visión como segunda lectura, y la conciliación contra Tesorería hace de segundo control.
+- El modelo introduce variación: la prioridad que asigna a una excepción puede cambiar entre corridas. Las clasificaciones, la extracción y la conciliación no variaron en las pruebas.
+- Una de las corridas de prueba falló después de la etapa cognitiva y no conservé el log, así que no sé la causa; no se repitió. Desde entonces las llamadas a Foundry reintentan errores transitorios.
 
 ## Seguridad y credenciales
 

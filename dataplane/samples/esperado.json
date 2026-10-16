@@ -11,6 +11,9 @@
     "CF-2026-0008.pdf": "carta_fianza",
     "CF-2026-0009.pdf": "carta_fianza",
     "CF-2026-0010.pdf": "carta_fianza",
+    "CF-2026-0012.pdf": "carta_fianza",
+    "CF-2026-0013.pdf": "carta_fianza",
+    "CF-2026-0014.pdf": "carta_fianza",
     "CF-2026-0003_reenvio.pdf": "carta_fianza",
     "oficio_liberacion_0099.pdf": "liberacion_garantia",
     "factura_proveedor_F001-4521.pdf": "otro"
@@ -40,8 +43,28 @@
       "VENCIMIENTO_DISTINTO"
     ],
     "CF-2026-0010": [],
+    "CF-2026-0012": [],
+    "CF-2026-0013": [
+      "MONTO_DISTINTO"
+    ],
+    "CF-2026-0014": [],
     "CF-2026-0011": [
       "SIN_CARTA"
     ]
+  },
+  "variante": {
+    "CF-2026-0001.pdf": "nativo",
+    "CF-2026-0002.pdf": "nativo",
+    "CF-2026-0003.pdf": "nativo",
+    "CF-2026-0004.pdf": "nativo",
+    "CF-2026-0005.pdf": "nativo",
+    "CF-2026-0006.pdf": "nativo",
+    "CF-2026-0007.pdf": "nativo",
+    "CF-2026-0008.pdf": "nativo",
+    "CF-2026-0009.pdf": "nativo",
+    "CF-2026-0010.pdf": "nativo",
+    "CF-2026-0012.pdf": "escaneo_limpio",
+    "CF-2026-0013.pdf": "escaneo_degradado",
+    "CF-2026-0014.pdf": "mixto_sello"
   }
 }

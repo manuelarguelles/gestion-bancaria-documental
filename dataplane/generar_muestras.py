@@ -30,7 +30,13 @@ CARTAS = [
     ("CF-2026-0008", "Pesquera Salaverry SAC", "Ministerio de la Producción", 60000.00, "USD", date(2026, 4, 12), date(2027, 4, 12), "B", {"moneda": "PEN"}, ["MONEDA_DISTINTA"]),
     ("CF-2026-0009", "Ingeniería y Obras Norte SRL", "Proyecto Especial Chavimochic", 410000.00, "PEN", date(2026, 8, 1), date(2027, 6, 30), "C", {"fecha_vencimiento": date(2027, 5, 30)}, ["VENCIMIENTO_DISTINTO"]),
     ("CF-2026-0010", "Distribuidora Libertad SAC", "Seguro Social de Salud", 95000.00, "PEN", date(2026, 2, 14), date(2027, 2, 14), "A", {}, []),
+    # Documentos que solo se leen con OCR (sin capa de texto) o con texto + sello
+    ("CF-2026-0012", "Agropecuaria Santa Rosa SAC", "Ministerio de Agricultura y Riego", 130000.00, "PEN", date(2026, 4, 20), date(2027, 4, 20), "A", {}, []),
+    ("CF-2026-0013", "Constructora Los Andes SRL", "Gobierno Regional de Cajamarca", 87500.25, "USD", date(2026, 6, 1), date(2027, 6, 1), "B", {"monto": 78500.25}, ["MONTO_DISTINTO"]),
+    ("CF-2026-0014", "Frutas del Valle SA", "Municipalidad Provincial de Chepén", 54000.00, "PEN", date(2026, 3, 9), date(2027, 3, 9), "C", {}, []),
 ]
+# Cómo se entrega cada PDF: por defecto con capa de texto; estas variantes obligan al OCR.
+VARIANTE = {"CF-2026-0012": "escaneo_limpio", "CF-2026-0013": "escaneo_degradado", "CF-2026-0014": "mixto_sello"}
 SIN_CARTA = ("CF-2026-0011", "Agrícola Virú SA", "Gobierno Regional La Libertad", 120000.00, "PEN", date(2027, 2, 28))
 
 
@@ -93,6 +99,71 @@ def pdf_carta(path: Path, c: tuple) -> None:
     cv.save()
 
 
+def _rasterizar(pdf: Path, dpi: int):
+    import pymupdf
+    from PIL import Image
+
+    with pymupdf.open(pdf) as d:
+        pix = d[0].get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
+        return Image.frombytes("L", (pix.width, pix.height), pix.samples)
+
+
+def _imagen_a_pdf(img, destino: Path) -> None:
+    """PDF de una página que contiene solo una imagen (lo que produce un escáner)."""
+    import io
+
+    import pymupdf
+
+    buf = io.BytesIO()
+    img.convert("L").save(buf, format="JPEG", quality=70)
+    doc = pymupdf.open()
+    pg = doc.new_page(width=595, height=842)
+    pg.insert_image(pg.rect, stream=buf.getvalue())
+    doc.save(destino)
+    doc.close()
+
+
+def pdf_escaneado(path: Path, carta: tuple, degradado: bool) -> None:
+    """Genera la carta con texto, la rasteriza y la guarda sin texto. `degradado` simula un mal escaneo."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    tmp = path.with_suffix(".tmp.pdf")
+    pdf_carta(tmp, carta)
+    img = _rasterizar(tmp, 110 if degradado else 200)
+    tmp.unlink()
+    if degradado:
+        rng = np.random.default_rng(7)
+        img = img.rotate(2.3, resample=Image.BICUBIC, expand=False, fillcolor=255)
+        img = img.filter(ImageFilter.GaussianBlur(0.8))
+        a = np.asarray(img).astype(np.float32) + rng.normal(0, 14, img.size[::-1])
+        img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+    _imagen_a_pdf(img, path)
+
+
+def pdf_mixto_sello(path: Path, carta: tuple) -> None:
+    """Texto nativo + un sello 'RECIBIDO' incrustado como imagen sobre la página."""
+    import io
+
+    import pymupdf
+    from PIL import Image, ImageDraw
+
+    pdf_carta(path, carta)
+    sello = Image.new("L", (420, 120), 255)
+    dib = ImageDraw.Draw(sello)
+    dib.rectangle((4, 4, 415, 115), outline=60, width=5)
+    dib.text((40, 40), "RECIBIDO  MESA DE PARTES  16/10/2026", fill=40)
+    buf = io.BytesIO()
+    sello.save(buf, format="PNG")
+    doc = pymupdf.open(path)
+    pg = doc[0]
+    pg.insert_image(pymupdf.Rect(300, 600, 540, 670), stream=buf.getvalue())
+    out = path.with_suffix(".mix.pdf")
+    doc.save(out)
+    doc.close()
+    out.replace(path)
+
+
 def pdf_texto(path: Path, titulo: str, lineas: list[str]) -> None:
     cv = canvas.Canvas(str(path), pagesize=A4)
     cv.setFont("Helvetica-Bold", 13)
@@ -112,9 +183,17 @@ def main(out: Path) -> None:
     esperado: dict = {"fecha_corte": CORTE.isoformat(), "documentos": {}, "conciliacion": {}}
 
     for c in CARTAS:
-        pdf_carta(bandeja / f"{c[0]}.pdf", c)
+        v = VARIANTE.get(c[0], "nativo")
+        destino = bandeja / f"{c[0]}.pdf"
+        if v == "nativo":
+            pdf_carta(destino, c)
+        elif v == "mixto_sello":
+            pdf_mixto_sello(destino, c)
+        else:
+            pdf_escaneado(destino, c, degradado=v == "escaneo_degradado")
         esperado["documentos"][f"{c[0]}.pdf"] = "carta_fianza"
         esperado["conciliacion"][c[0]] = c[9]
+        esperado.setdefault("variante", {})[f"{c[0]}.pdf"] = v
     # Duplicado de la 0003 (mismo número, archivo distinto -> distinto sha256)
     dup = list(CARTAS[2])
     dup[5] = date(2026, 6, 30)

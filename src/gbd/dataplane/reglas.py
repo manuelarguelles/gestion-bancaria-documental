@@ -8,7 +8,21 @@ from decimal import Decimal
 
 DIAS_ALERTA = 30
 CODIGOS_EXCEPCION = {"NO_EN_TESORERIA", "MONTO_DISTINTO", "MONEDA_DISTINTA", "VENCIMIENTO_DISTINTO",
-                     "BENEFICIARIO_DISTINTO", "VENCIDA", "DUPLICADA", "SIN_CARTA"}
+                     "BENEFICIARIO_DISTINTO", "VENCIDA", "DUPLICADA", "SIN_CARTA", "LECTURA_DUDOSA"}
+
+
+DESCRIPCION_CODIGO = {
+    "NO_EN_TESORERIA": "carta fianza recibida que no figura en el Registro de Garantías de Tesorería",
+    "MONTO_DISTINTO": "el monto de la carta no coincide con el del Registro de Tesorería",
+    "MONEDA_DISTINTA": "la moneda de la carta no coincide con la del Registro de Tesorería",
+    "VENCIMIENTO_DISTINTO": "la fecha de vencimiento de la carta difiere de la del Registro de Tesorería",
+    "BENEFICIARIO_DISTINTO": "el beneficiario de la carta difiere del del Registro de Tesorería",
+    "VENCIDA": "carta fianza con fecha de vencimiento anterior a la fecha de corte",
+    "DUPLICADA": "mismo número de carta recibido en más de un documento",
+    "SIN_CARTA": "registro de Tesorería sin carta fianza recibida",
+    "LECTURA_DUDOSA": "campos de la carta que no se pudieron verificar en el texto original del documento",
+    "POR_VENCER": "carta fianza que vence dentro de los próximos 30 días",
+}
 
 
 def norm(s: str) -> str:
@@ -35,12 +49,16 @@ class Registro:
     fecha_vencimiento: date
 
 
-def evaluar(carta: Carta | None, reg: Registro | None, n_documentos: int, corte: date) -> tuple[str, list[str], dict]:
+def evaluar(carta: Carta | None, reg: Registro | None, n_documentos: int, corte: date,
+            lectura_dudosa: tuple[str, ...] = ()) -> tuple[str, list[str], dict]:
     """Devuelve (resultado, codigos, detalle). resultado: CONCILIADA | ALERTA | EXCEPCION."""
     codigos: list[str] = []
     detalle: dict = {}
     if carta is None:
         return "EXCEPCION", ["SIN_CARTA"], {"registro_monto": str(reg.monto), "registro_moneda": reg.moneda}
+    if lectura_dudosa:
+        codigos.append("LECTURA_DUDOSA")
+        detalle["campos_sin_anclar"] = list(lectura_dudosa)
     if n_documentos > 1:
         codigos.append("DUPLICADA")
         detalle["documentos"] = n_documentos

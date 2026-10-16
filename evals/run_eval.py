@@ -16,7 +16,7 @@ from gbd import db
 RAIZ = Path(__file__).resolve().parents[1]
 POLITICA_ESPERADA = {"MONTO_DISTINTO": "POL-GAR-02", "MONEDA_DISTINTA": "POL-GAR-02", "NO_EN_TESORERIA": "POL-GAR-01",
                      "VENCIDA": "POL-GAR-03", "VENCIMIENTO_DISTINTO": "POL-GAR-04", "DUPLICADA": "POL-GAR-05",
-                     "SIN_CARTA": "POL-GAR-06"}
+                     "SIN_CARTA": "POL-GAR-06", "LECTURA_DUDOSA": "POL-GAR-09"}
 
 
 def _generador():
@@ -39,14 +39,21 @@ def main() -> int:
         # (2) extracción
         cartas = {r["numero"]: r for r in cx.execute("SELECT * FROM doc.cartas_fianza").fetchall()}
         campos = ok_campos = 0
+        por_variante: dict[str, list[int]] = {}
+        metodos = {r["archivo"]: (r["metodo_extraccion"], r["confianza_ocr"]) for r in cx.execute(
+            "SELECT archivo, metodo_extraccion, confianza_ocr FROM doc.documentos").fetchall()}
         for numero, ordenante, benef, monto, mon, emi, vence, *_ in gen.CARTAS:
             r = cartas.get(numero)
+            var = esperado["variante"][f"{numero}.pdf"]
             for campo, val in (("ordenante", ordenante), ("beneficiario", benef), ("monto", monto), ("moneda", mon),
                                ("fecha_emision", emi), ("fecha_vencimiento", vence)):
                 campos += 1
                 got = r[campo] if r else None
                 same = (float(got) == val) if campo == "monto" and got is not None else got == val
                 ok_campos += same
+                acum = por_variante.setdefault(var, [0, 0])
+                acum[0] += same
+                acum[1] += 1
                 if not same:
                     fallos.append(f"extracción {numero}.{campo}: {got!r} != {val!r}")
         # (3) conciliación
@@ -70,6 +77,10 @@ def main() -> int:
                 fallos.append(f"política {r['numero']}: citó {r['politicas_citadas']}, esperaba ⊇ {sorted(need)}")
     print(f"clasificación : {ok_cls}/{len(esperado['documentos'])}")
     print(f"extracción    : {ok_campos}/{campos} campos")
+    for var, (ok, n) in sorted(por_variante.items()):
+        ej = next(a for a, v in esperado["variante"].items() if v == var)
+        m, conf = metodos.get(ej, ("?", None))
+        print(f"   · {var:<18} {ok}/{n} campos  (lectura: {m}{f' {float(conf):.0f}% OCR' if conf else ''})")
     print(f"conciliación  : {ok_conc}/{len(conc)} garantías con los códigos exactos")
     print(f"política citada: {ok_pol}/{len(exc)} excepciones")
     for f in fallos:

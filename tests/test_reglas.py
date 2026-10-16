@@ -59,3 +59,8 @@ def test_borde_vence_hoy_no_esta_vencida():
 def test_beneficiario_normalizado():
     assert norm("  Ingeniería   Y Obras ") == "ingenieria y obras"
     assert evaluar(carta(beneficiario="MUNICIPALIDAD DE  TRUJILLO"), reg(), 1, CORTE)[0] == "CONCILIADA"
+
+
+def test_lectura_dudosa_es_excepcion():
+    r, c, d = evaluar(carta(), reg(), 1, CORTE, lectura_dudosa=("monto",))
+    assert (r, c) == ("EXCEPCION", ["LECTURA_DUDOSA"]) and d["campos_sin_anclar"] == ["monto"]

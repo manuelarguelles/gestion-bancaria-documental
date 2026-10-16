@@ -8,7 +8,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from openpyxl import load_workbook
-from pypdf import PdfReader
+
+from .extraccion import extraer_pdf
 
 
 @dataclass(frozen=True)
@@ -16,14 +17,23 @@ class Doc:
     archivo: str
     sha256: str
     texto: str
+    ruta: str = ""
+    metodo: str = "nativo"
+    confianza_ocr: float | None = None
+    notas: tuple[str, ...] = ()
 
 
-def leer_bandeja(carpeta: Path) -> list[Doc]:
+def leer_bandeja(carpeta: Path, conocidos: frozenset[str] | set[str] = frozenset()) -> list[Doc]:
+    """Lee los PDF de la bandeja. Los ya procesados (por sha256) se omiten ANTES de extraer: no se repite OCR ni visión."""
     docs = []
     for p in sorted(carpeta.glob("*.pdf")):
-        raw = p.read_bytes()
-        texto = "\n".join((pg.extract_text() or "") for pg in PdfReader(p).pages).strip()
-        docs.append(Doc(p.name, hashlib.sha256(raw).hexdigest(), texto))
+        sha = hashlib.sha256(p.read_bytes()).hexdigest()
+        if sha in conocidos:
+            continue
+        ext = extraer_pdf(p)
+        notas = tuple(f"p{pg.numero} {pg.metodo}: {n}" for pg in ext.paginas for n in pg.notas)
+        docs.append(Doc(p.name, sha, ext.texto, str(p), ext.metodo,
+                        ext.confianza_min, notas))
     return docs
 
 

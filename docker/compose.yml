@@ -37,6 +37,8 @@ services:
       FOUNDRY_EMBEDDING_MODEL: ${FOUNDRY_EMBEDDING_MODEL:-text-embedding-3-small}
       GBD_FECHA_CORTE: ${GBD_FECHA_CORTE:-}
       GBD_AAD_TOKEN_DIR: /run/gbd/tokens
+      GBD_OTEL: ${GBD_OTEL:-}
+      GBD_VISION: ${GBD_VISION:-1}
     volumes:
       # Token de corta vida generado por `make tokens` (carpeta out/, ignorada por git).
       - ../out/tokens:/run/gbd/tokens:ro

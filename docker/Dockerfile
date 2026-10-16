@@ -2,6 +2,9 @@
 FROM python:3.13-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
+# OCR: Tesseract con idioma español (los acentos y la ñ de los documentos dependen de él)
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home --uid 10001 gbd
 COPY pyproject.toml README.md ./
 COPY src ./src

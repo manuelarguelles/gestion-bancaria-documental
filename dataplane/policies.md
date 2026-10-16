@@ -23,3 +23,6 @@ Toda excepción requiere decisión de un analista (aprobar, rechazar o escalar).
 
 ## POL-GAR-08 · Datos sensibles
 Los documentos de la bandeja no se envían a canales de consulta de agencias; las agencias solo ven estado y vigencia de las garantías de su cartera.
+
+## POL-GAR-09 · Lectura dudosa de un documento
+Si el sistema no puede verificar en el texto original el número, el monto o la fecha de vencimiento de una carta (por ejemplo, un escaneo ilegible), el documento no se concilia automáticamente: se envía a revisión manual contra el original en papel o PDF. Nunca se corrige un dato "a ojo" ni se completa con el Registro de Tesorería.

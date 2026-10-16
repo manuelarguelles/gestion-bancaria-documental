@@ -12,7 +12,7 @@
   },
   {
    "id": "z_doc",
-   "label": "Contenedor Docker · workflow local (Agent Framework) + data plane",
+   "label": "Contenedor Docker · workflow local (Agent Framework) + Tesseract + data plane",
    "x": 230,
    "y": 70,
    "w": 500,
@@ -52,14 +52,15 @@
   },
   {
    "id": "ingest",
-   "label": "📥 Ingestar (ETL)",
+   "label": "📥 Ingestar + lectura PDF (PyMuPDF · OCR)",
    "x": 260,
    "y": 112,
-   "w": 155
+   "w": 155,
+   "h": 62
   },
   {
    "id": "cog",
-   "label": "🧩 Cognitivo",
+   "label": "🧩 Cognitivo + anclaje de datos",
    "x": 260,
    "y": 190,
    "w": 155
@@ -136,7 +137,7 @@
   },
   {
    "id": "modelos",
-   "label": "🧠 gpt-5-mini · embeddings",
+   "label": "🧠 gpt-5-mini (visión) · embeddings",
    "x": 790,
    "y": 300,
    "w": 240,
@@ -276,8 +277,8 @@
  "legend_y": 830,
  "legend": [
   "1  Llega la bandeja: PDFs de cartas fianza y el Excel del Registro de Tesorería.",
-  "2  Ingestar carga el Excel a Postgres y extrae el texto de los PDF nuevos (idempotente por sha256).",
-  "3  Cognitivo invoca el workflow de Foundry: clasifica el documento y, si es carta fianza, extrae sus campos (JSON estricto).",
+  "2  Ingestar carga el Excel a Postgres y lee cada PDF por capas: texto nativo por bloques (PyMuPDF), OCR si es escaneo o trae sellos, y visión del modelo si la resolución es baja.",
+  "3  Cognitivo invoca el workflow de Foundry (clasificar → extraer) y comprueba que número, monto y fecha aparezcan en el texto; si no, relee con visión o pasa a revisión humana.",
   "4  Cargar guarda documentos y cartas en Postgres.",
   "5  Conciliar aplica reglas puras contra Tesorería: monto, moneda, vencimiento, duplicados, vencidas y por vencer.",
   "6  Cada excepción recupera sus políticas internas con búsqueda vectorial en pgvector.",

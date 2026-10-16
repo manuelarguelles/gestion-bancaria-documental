@@ -16,6 +16,8 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+      - name: Tesseract (OCR) con español
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-spa
       - run: pip install -e ".[dev]"
       - run: ruff check src tests evals dataplane
       - name: Tests unitarios (sin Postgres ni Foundry)

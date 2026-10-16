@@ -18,11 +18,15 @@ from pathlib import Path
 from typing import Never
 
 from agent_framework import Executor, WorkflowBuilder, WorkflowContext, handler
+from opentelemetry import context as otel_context
+from opentelemetry import trace
 
-from .. import db, foundry
+from .. import db, foundry, telemetry
 from ..config import settings
 from ..dataplane import etl
-from ..dataplane.reglas import Carta, Registro, evaluar
+from ..dataplane.anclaje import campos_sin_anclar
+from ..dataplane.extraccion import extraer_pdf
+from ..dataplane.reglas import DESCRIPCION_CODIGO, Carta, Registro, evaluar
 from ..rag import politicas
 
 WORKFLOW_FOUNDRY = "gbd-workflow-documental"
@@ -48,6 +52,8 @@ class Leido:
     doc: etl.Doc
     clasificacion: dict
     campos: dict | None
+    dudosos: tuple[str, ...] = ()
+    releido_con_vision: bool = False
 
 
 @dataclass
@@ -80,51 +86,91 @@ def _parse_mensajes(msgs: list[str]) -> tuple[dict, dict | None]:
 class Ingestar(Executor):
     @handler
     async def run(self, e: Entrada, ctx: WorkflowContext[Lote]) -> None:
+        with telemetry.span("gbd.ingestar", bandeja=e.bandeja):
+            await self._run(e, ctx)
+
+    async def _run(self, e: Entrada, ctx: WorkflowContext[Lote]) -> None:
         with db.connect() as cx:
             n = etl.cargar_registro_tesoreria(cx, Path(e.registro_xlsx))
             conocidos = {r["sha256"] for r in cx.execute("SELECT sha256 FROM doc.documentos").fetchall()}
             corrida = str(uuid.uuid4())
             cx.execute("INSERT INTO doc.corridas(id, fecha_corte) VALUES (%s,%s)", (corrida, e.fecha_corte))
             cx.commit()
-        todos = etl.leer_bandeja(Path(e.bandeja))
-        nuevos = [d for d in todos if d.sha256 not in conocidos]
-        print(f"[ingestar] registro tesorería: {n} filas · bandeja: {len(todos)} PDF ({len(nuevos)} nuevos)")
+        total = len(list(Path(e.bandeja).glob("*.pdf")))
+        nuevos = etl.leer_bandeja(Path(e.bandeja), conocidos)
+        print(f"[ingestar] registro tesorería: {n} filas · bandeja: {total} PDF ({len(nuevos)} nuevos)")
         await ctx.send_message(Lote(corrida, e.fecha_corte, nuevos))
 
 
 class Cognitivo(Executor):
     @handler
     async def run(self, lote: Lote, ctx: WorkflowContext[Procesado]) -> None:
+        raiz = telemetry.tracer().start_span("gbd.cognitivo", attributes={"gbd.documentos": len(lote.docs)})
+        contexto = trace.set_span_in_context(raiz)
+
         def leer(d: etl.Doc) -> Leido:
-            clasif, campos = _parse_mensajes(foundry.run_workflow(WORKFLOW_FOUNDRY, d.texto))
-            print(f"[cognitivo] {d.archivo}: {clasif['tipo']} ({clasif['confianza']:.2f})")
-            return Leido(d, clasif, campos)
+            token = otel_context.attach(contexto)  # el hilo del pool hereda el span padre
+            try:
+                with telemetry.span("gbd.leer_documento", archivo=d.archivo, extraccion=d.metodo,
+                                    confianza_ocr=d.confianza_ocr) as sp:
+                    return self._leer(d, sp)
+            finally:
+                otel_context.detach(token)
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             leidos = list(pool.map(leer, lote.docs))
+        raiz.end()
         await ctx.send_message(Procesado(lote.corrida_id, lote.fecha_corte, leidos))
+
+    @staticmethod
+    def _leer(d: etl.Doc, sp) -> Leido:
+        clasif, campos = _parse_mensajes(foundry.run_workflow(WORKFLOW_FOUNDRY, d.texto))
+        dudosos: tuple[str, ...] = ()
+        con_vision = False
+        if campos is not None:
+            malos = campos_sin_anclar(campos, d.texto)
+            if malos and d.metodo != "nativo":
+                # Dato que el texto leído no respalda: se relee con visión y se vuelve a extraer.
+                sp.add_event("relectura_con_vision", {"campos": ",".join(malos)})
+                texto_v = extraer_pdf(d.ruta, forzar_vision=True).texto
+                _, campos2 = _parse_mensajes(foundry.run_workflow(WORKFLOW_FOUNDRY, texto_v))
+                if campos2 is not None and len(campos_sin_anclar(campos2, texto_v)) < len(malos):
+                    campos, malos, con_vision = campos2, campos_sin_anclar(campos2, texto_v), True
+            dudosos = tuple(malos)
+        sp.set_attribute("gbd.tipo", clasif["tipo"])
+        sp.set_attribute("gbd.dudosos", ",".join(dudosos))
+        print(f"[cognitivo] {d.archivo}: {clasif['tipo']} ({clasif['confianza']:.2f}) · lectura {d.metodo}"
+              + (f" {d.confianza_ocr:.0f}%" if d.confianza_ocr else "")
+              + (" · releído con visión" if con_vision else "")
+              + (f" · SIN ANCLAR {list(dudosos)}" if dudosos else ""))
+        return Leido(d, clasif, campos, dudosos, con_vision)
 
 
 class Cargar(Executor):
     @handler
+    @telemetry.traced("gbd.cargar")
     async def run(self, p: Procesado, ctx: WorkflowContext[Conciliado]) -> None:
         cargados, fuera = 0, []
         with db.connect() as cx:
             for lei in p.leidos:
                 tipo = lei.clasificacion["tipo"]
                 row = cx.execute(
-                    """INSERT INTO doc.documentos(archivo, sha256, tipo, clasificacion, texto)
-                       VALUES (%s,%s,%s,%s,%s) RETURNING id""",
-                    (lei.doc.archivo, lei.doc.sha256, tipo, json.dumps(lei.clasificacion), lei.doc.texto)).fetchone()
+                    """INSERT INTO doc.documentos(archivo, sha256, tipo, clasificacion, texto, metodo_extraccion,
+                         confianza_ocr, notas_extraccion, estado) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (lei.doc.archivo, lei.doc.sha256, tipo, json.dumps(lei.clasificacion), lei.doc.texto,
+                     lei.doc.metodo + ("+vision" if lei.releido_con_vision else ""), lei.doc.confianza_ocr,
+                     json.dumps(list(lei.doc.notas), ensure_ascii=False),
+                     "REVISION_MANUAL" if lei.dudosos else "PROCESADO")).fetchone()
                 if lei.campos is None:
                     fuera.append(lei.doc.archivo)
                     continue
                 c = lei.campos
                 cx.execute(
                     """INSERT INTO doc.cartas_fianza(documento_id, numero, ordenante, beneficiario, monto, moneda,
-                         fecha_emision, fecha_vencimiento, tipo_garantia) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                         fecha_emision, fecha_vencimiento, tipo_garantia, lectura_dudosa)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (row["id"], c["numero"].strip(), c["ordenante"], c["beneficiario"], Decimal(str(c["monto"])),
-                     c["moneda"], c["fecha_emision"], c["fecha_vencimiento"], c["tipo_garantia"]))
+                     c["moneda"], c["fecha_emision"], c["fecha_vencimiento"], c["tipo_garantia"], list(lei.dudosos)))
                 cargados += 1
             cx.commit()
         await ctx.send_message(Conciliado(p.corrida_id, p.fecha_corte, cargados, fuera, p.omitidos, []))
@@ -132,6 +178,7 @@ class Cargar(Executor):
 
 class Conciliar(Executor):
     @handler
+    @telemetry.traced("gbd.conciliar")
     async def run(self, c: Conciliado, ctx: WorkflowContext[Conciliado]) -> None:
         excepciones: list[int] = []
         resumen = {"CONCILIADA": 0, "ALERTA": 0, "EXCEPCION": 0}
@@ -157,7 +204,7 @@ class Conciliar(Executor):
                     res, cods, det = evaluar(
                         Carta(numero, ca["beneficiario"], ca["monto"], ca["moneda"], ca["fecha_vencimiento"]),
                         Registro(numero, r["beneficiario"], r["monto"], r["moneda"], r["fecha_vencimiento"]) if r else None,
-                        len(grupo), c.fecha_corte)
+                        len(grupo), c.fecha_corte, tuple(ca["lectura_dudosa"]))
                     guardar(numero, ca["id"], res, cods, det)
             for numero, r in regs.items():
                 if numero not in por_numero:
@@ -174,6 +221,7 @@ class Conciliar(Executor):
 
 class Excepciones(Executor):
     @handler
+    @telemetry.traced("gbd.excepciones")
     async def run(self, c: Conciliado, ctx: WorkflowContext[Conciliado]) -> None:
         with db.connect() as cx:
             filas = [cx.execute("SELECT * FROM doc.conciliacion WHERE id=%s", (i,)).fetchone() for i in c.excepciones]
@@ -185,7 +233,8 @@ class Excepciones(Executor):
             carta_por_id = {r["id"]: r for r in cx.execute("SELECT * FROM doc.cartas_fianza").fetchall()}
             contextos = []
             for f in filas:
-                consulta = f"{' '.join(f['codigos'])}: " + json.dumps(f["detalle"], ensure_ascii=False)
+                consulta = "; ".join(DESCRIPCION_CODIGO.get(c, c) for c in f["codigos"]) + ". " + \
+                    json.dumps(f["detalle"], ensure_ascii=False)
                 pols = politicas.recuperar(cx, consulta, k=3)
                 contextos.append((f, pols))
 
@@ -220,6 +269,7 @@ class Excepciones(Executor):
 
 class Resumen(Executor):
     @handler
+    @telemetry.traced("gbd.resumen")
     async def run(self, c: Conciliado, ctx: WorkflowContext[Never, dict]) -> None:
         with db.connect() as cx:
             r = cx.execute("SELECT resumen FROM doc.corridas WHERE id=%s", (c.corrida_id,)).fetchone()["resumen"]
@@ -236,6 +286,14 @@ def build():
 
 
 async def ejecutar(bandeja: str, registro_xlsx: str) -> dict:
+    telemetry.iniciar()
     wf = build()
-    result = await wf.run(Entrada(bandeja, registro_xlsx, settings().fecha_corte))
-    return result.get_outputs()[0]
+    with telemetry.span("gbd.corrida", fecha_corte=settings().fecha_corte.isoformat()) as sp:
+        result = await wf.run(Entrada(bandeja, registro_xlsx, settings().fecha_corte))
+        salida = result.get_outputs()[0]
+        sp.set_attribute("gbd.corrida_id", salida["corrida_id"])
+        sp.set_attribute("gbd.excepciones_pendientes", salida["excepciones_pendientes_analista"])
+        if telemetry._listo:
+            print(f"[traza] operation_id={format(sp.get_span_context().trace_id, '032x')}")
+    telemetry.vaciar()
+    return salida

@@ -19,8 +19,8 @@ def _gen():
 def test_generador_y_lectura_de_bandeja(tmp_path):
     _gen().main(tmp_path)
     docs = etl.leer_bandeja(tmp_path / "bandeja")
-    assert len(docs) == 13
-    assert len({d.sha256 for d in docs}) == 13  # el reenvío duplicado tiene bytes distintos
+    assert len(docs) == 16
+    assert len({d.sha256 for d in docs}) == 16  # el reenvío duplicado tiene bytes distintos
     d = next(x for x in docs if x.archivo == "CF-2026-0003.pdf")
     assert "45.000,50 soles" in d.texto
     esperado = json.loads((tmp_path / "esperado.json").read_text())
@@ -29,7 +29,7 @@ def test_generador_y_lectura_de_bandeja(tmp_path):
 
 def test_politicas_parseables():
     pols = parsear((RAIZ / "dataplane" / "policies.md").read_text(encoding="utf-8"))
-    assert [p[0] for p in pols] == [f"POL-GAR-0{i}" for i in range(1, 9)]
+    assert [p[0] for p in pols] == [f"POL-GAR-0{i}" for i in range(1, 10)]
 
 
 def test_parse_mensajes_workflow():
